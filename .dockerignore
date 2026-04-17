@@ -1,12 +1,19 @@
+# Exclude unnecessary files and directories
 node_modules
-npm-debug.log
+npm-debug.log*
 .git
-.gitignore
-README.md
-.env
+.env*
 .nyc_output
 coverage
 .docker
 docker-compose*
 frontend/
 vercel.json
+
+# Include only what we need for the backend
+!nakama/
+!start.sh
+!package.json
+!index.js
+!Procfile
+!railway.json
