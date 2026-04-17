@@ -7,11 +7,493 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # Create directories first
 RUN mkdir -p /nakama/data/modules
 
-# Copy the enhanced game logic from our local files
-COPY nakama/data/modules/match.js /nakama/data/modules/match.js
+# Create the enhanced game logic directly in the container
+RUN cat > /nakama/data/modules/match.js << 'EOF'
+let InitModule = function (ctx, logger, nk, initializer) {
+  
+  // Op codes for different message types
+  const OP_CODE = {
+    MAKE_MOVE: 1,
+    GAME_UPDATE: 2,
+    GAME_END: 3,
+    PLAYER_READY: 4,
+    TIMER_UPDATE: 5,
+    PLAYER_DISCONNECT: 6
+  };
 
-# Copy the Nakama configuration
-COPY nakama/data/config.yml /nakama/data/config.yml
+  // Game constants
+  const TURN_TIMEOUT_SEC = 30;
+  const GAME_START_DELAY_SEC = 3;
+
+  // Helper function to check for win conditions
+  function checkWinner(board) {
+    const winPatterns = [
+      [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+      [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns  
+      [0, 4, 8], [2, 4, 6]             // Diagonals
+    ];
+    
+    for (let pattern of winPatterns) {
+      const [a, b, c] = pattern;
+      if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+        return { winner: board[a], winningPattern: pattern };
+      }
+    }
+    
+    // Check for draw
+    if (!board.includes(null)) {
+      return { winner: 'draw', winningPattern: null };
+    }
+    
+    return null;
+  }
+
+  // Helper function to update player statistics
+  function updatePlayerStats(nk, userId, gameResult) {
+    try {
+      const objectIds = [{ collection: "stats", key: "player_stats", userId: userId }];
+      const objects = nk.storageRead(objectIds);
+      
+      let stats = { wins: 0, losses: 0, draws: 0, gamesPlayed: 0, winStreak: 0, bestWinStreak: 0 };
+      
+      if (objects.length > 0) {
+        stats = JSON.parse(objects[0].value);
+      }
+      
+      stats.gamesPlayed++;
+      
+      if (gameResult === 'win') {
+        stats.wins++;
+        stats.winStreak++;
+        stats.bestWinStreak = Math.max(stats.bestWinStreak, stats.winStreak);
+      } else if (gameResult === 'loss') {
+        stats.losses++;
+        stats.winStreak = 0;
+      } else {
+        stats.draws++;
+        stats.winStreak = 0;
+      }
+      
+      const writeObjects = [{
+        collection: "stats",
+        key: "player_stats", 
+        userId: userId,
+        value: JSON.stringify(stats)
+      }];
+      
+      nk.storageWrite(writeObjects);
+      
+      return stats;
+    } catch (error) {
+      logger.error("Error updating player stats: " + error.message);
+      return null;
+    }
+  }
+
+  initializer.registerMatch("tic-tac-toe", {
+    matchInit: function (ctx, logger, nk, params) {
+      logger.info("Match initialized");
+      
+      return {
+        state: {
+          board: Array(9).fill(null),
+          currentPlayer: 'X',
+          players: {},
+          gameStatus: 'waiting', // waiting, starting, playing, ended
+          turnStartTime: 0,
+          turnTimeLeft: TURN_TIMEOUT_SEC,
+          gameStartTime: 0,
+          winner: null,
+          winningPattern: null,
+          readyPlayers: new Set(),
+          spectators: []
+        },
+        tickRate: 1,
+        label: "Production Tic-Tac-Toe"
+      };
+    },
+
+    matchJoinAttempt: function (ctx, logger, nk, dispatcher, tick, state, presence, metadata) {
+      // Allow spectators if game is full
+      if (Object.keys(state.players).length >= 2) {
+        if (state.gameStatus === 'ended' || metadata && metadata.spectate) {
+          return { state, accept: true };
+        }
+        return { 
+          state, 
+          accept: false, 
+          rejectMessage: "Game is full. Join as spectator instead." 
+        };
+      }
+      
+      return { state, accept: true };
+    },
+
+    matchJoin: function (ctx, logger, nk, dispatcher, tick, state, presences) {
+      presences.forEach(presence => {
+        const userId = presence.user_id;
+        const username = presence.username;
+        
+        // If game already has 2 players, add as spectator
+        if (Object.keys(state.players).length >= 2) {
+          state.spectators.push({ userId, username, sessionId: presence.session_id });
+          logger.info(`Player ${username} joined as spectator`);
+        } else {
+          // Assign player symbol (X or O)
+          const playerSymbol = Object.keys(state.players).length === 0 ? 'X' : 'O';
+          state.players[userId] = {
+            sessionId: presence.session_id,
+            username: username,
+            symbol: playerSymbol,
+            ready: false
+          };
+          
+          logger.info(`Player ${username} joined as ${playerSymbol}`);
+        }
+      });
+
+      // Start game if we have 2 players
+      if (Object.keys(state.players).length === 2 && state.gameStatus === 'waiting') {
+        state.gameStatus = 'starting';
+        state.gameStartTime = tick + (GAME_START_DELAY_SEC * 60); // Convert to ticks
+        
+        dispatcher.broadcastMessage(OP_CODE.GAME_UPDATE, JSON.stringify({
+          type: 'game_starting',
+          board: state.board,
+          players: state.players,
+          currentPlayer: state.currentPlayer,
+          gameStatus: state.gameStatus,
+          countdown: GAME_START_DELAY_SEC,
+          message: 'Game starting soon...'
+        }));
+      } else {
+        // Send current game state to new joiners
+        dispatcher.broadcastMessage(OP_CODE.GAME_UPDATE, JSON.stringify({
+          type: 'player_joined',
+          board: state.board,
+          players: state.players,
+          currentPlayer: state.currentPlayer,
+          gameStatus: state.gameStatus,
+          spectators: state.spectators.length
+        }));
+      }
+
+      return { state };
+    },
+
+    matchLeave: function (ctx, logger, nk, dispatcher, tick, state, presences) {
+      presences.forEach(presence => {
+        const userId = presence.user_id;
+        
+        // Remove from players
+        if (state.players[userId]) {
+          logger.info(`Player ${state.players[userId].username} left the game`);
+          delete state.players[userId];
+          
+          // End game if a player leaves during active game
+          if (state.gameStatus === 'playing') {
+            const remainingPlayer = Object.values(state.players)[0];
+            if (remainingPlayer) {
+              state.winner = remainingPlayer.symbol;
+              state.gameStatus = 'ended';
+              
+              // Update stats for remaining player (win by forfeit)
+              updatePlayerStats(nk, Object.keys(state.players)[0], 'win');
+              
+              dispatcher.broadcastMessage(OP_CODE.GAME_END, JSON.stringify({
+                type: 'game_ended',
+                winner: state.winner,
+                reason: 'opponent_left',
+                board: state.board,
+                winningPattern: null,
+                gameStatus: state.gameStatus
+              }));
+            }
+          }
+        }
+        
+        // Remove from spectators
+        state.spectators = state.spectators.filter(s => s.userId !== userId);
+      });
+
+      return { state };
+    },
+
+    matchLoop: function (ctx, logger, nk, dispatcher, tick, state, messages) {
+      // Handle game start countdown
+      if (state.gameStatus === 'starting' && tick >= state.gameStartTime) {
+        state.gameStatus = 'playing';
+        state.turnStartTime = tick;
+        state.turnTimeLeft = TURN_TIMEOUT_SEC;
+        
+        dispatcher.broadcastMessage(OP_CODE.GAME_UPDATE, JSON.stringify({
+          type: 'game_started',
+          board: state.board,
+          currentPlayer: state.currentPlayer,
+          gameStatus: state.gameStatus,
+          turnTimeLeft: state.turnTimeLeft
+        }));
+      }
+
+      // Handle turn timer
+      if (state.gameStatus === 'playing' && state.turnStartTime > 0) {
+        const elapsedTicks = tick - state.turnStartTime;
+        const elapsedSeconds = Math.floor(elapsedTicks / 60);
+        state.turnTimeLeft = Math.max(0, TURN_TIMEOUT_SEC - elapsedSeconds);
+        
+        // Timeout - forfeit turn
+        if (state.turnTimeLeft <= 0) {
+          logger.info(`Turn timeout for player ${state.currentPlayer}`);
+          
+          const currentPlayerId = Object.keys(state.players).find(
+            userId => state.players[userId].symbol === state.currentPlayer
+          );
+          const otherPlayerId = Object.keys(state.players).find(
+            userId => state.players[userId].symbol !== state.currentPlayer
+          );
+          
+          // Game ends - other player wins by timeout
+          state.winner = state.currentPlayer === 'X' ? 'O' : 'X';
+          state.gameStatus = 'ended';
+          
+          // Update statistics
+          if (currentPlayerId) updatePlayerStats(nk, currentPlayerId, 'loss');
+          if (otherPlayerId) updatePlayerStats(nk, otherPlayerId, 'win');
+          
+          dispatcher.broadcastMessage(OP_CODE.GAME_END, JSON.stringify({
+            type: 'game_ended',
+            winner: state.winner,
+            reason: 'timeout',
+            board: state.board,
+            winningPattern: null,
+            gameStatus: state.gameStatus
+          }));
+          
+          return { state };
+        }
+        
+        // Send timer updates every few seconds
+        if (elapsedTicks % 120 === 0) { // Every 2 seconds
+          dispatcher.broadcastMessage(OP_CODE.TIMER_UPDATE, JSON.stringify({
+            turnTimeLeft: state.turnTimeLeft,
+            currentPlayer: state.currentPlayer
+          }));
+        }
+      }
+
+      // Process player messages
+      messages.forEach(message => {
+        try {
+          const senderId = message.sender.user_id;
+          const data = JSON.parse(message.data);
+          
+          logger.info(`Received message from ${senderId}: ${JSON.stringify(data)}`);
+
+          switch (message.op_code) {
+            case OP_CODE.MAKE_MOVE:
+              handleMakeMove(ctx, logger, nk, dispatcher, tick, state, senderId, data);
+              break;
+              
+            case OP_CODE.PLAYER_READY:
+              handlePlayerReady(ctx, logger, nk, dispatcher, tick, state, senderId, data);
+              break;
+              
+            default:
+              logger.warn(`Unknown op code: ${message.op_code}`);
+          }
+          
+        } catch (error) {
+          logger.error("Error processing message: " + error.message);
+        }
+      });
+
+      return { state };
+    }
+  });
+
+  function handleMakeMove(ctx, logger, nk, dispatcher, tick, state, senderId, data) {
+    // Validate game state
+    if (state.gameStatus !== 'playing') {
+      logger.warn("Move attempted when game not active");
+      return;
+    }
+
+    // Validate player turn
+    const player = state.players[senderId];
+    if (!player || player.symbol !== state.currentPlayer) {
+      logger.warn(`Invalid turn for player ${senderId}`);
+      return;
+    }
+
+    // Validate move position
+    const position = data.position;
+    if (position < 0 || position > 8 || state.board[position] !== null) {
+      logger.warn(`Invalid move position: ${position}`);
+      return;
+    }
+
+    // Make the move
+    state.board[position] = state.currentPlayer;
+    logger.info(`Player ${player.username} (${player.symbol}) moved to position ${position}`);
+
+    // Check for game end
+    const gameResult = checkWinner(state.board);
+    if (gameResult) {
+      state.winner = gameResult.winner;
+      state.winningPattern = gameResult.winningPattern;
+      state.gameStatus = 'ended';
+      
+      // Update player statistics
+      if (gameResult.winner === 'draw') {
+        Object.keys(state.players).forEach(userId => {
+          updatePlayerStats(nk, userId, 'draw');
+        });
+      } else {
+        Object.keys(state.players).forEach(userId => {
+          const playerSymbol = state.players[userId].symbol;
+          const result = playerSymbol === gameResult.winner ? 'win' : 'loss';
+          updatePlayerStats(nk, userId, result);
+        });
+      }
+      
+      dispatcher.broadcastMessage(OP_CODE.GAME_END, JSON.stringify({
+        type: 'game_ended',
+        winner: state.winner,
+        reason: gameResult.winner === 'draw' ? 'draw' : 'victory',
+        board: state.board,
+        winningPattern: state.winningPattern,
+        gameStatus: state.gameStatus
+      }));
+      
+      logger.info(`Game ended. Winner: ${state.winner}`);
+    } else {
+      // Switch turns
+      state.currentPlayer = state.currentPlayer === 'X' ? 'O' : 'X';
+      state.turnStartTime = tick;
+      state.turnTimeLeft = TURN_TIMEOUT_SEC;
+      
+      dispatcher.broadcastMessage(OP_CODE.GAME_UPDATE, JSON.stringify({
+        type: 'move_made',
+        board: state.board,
+        currentPlayer: state.currentPlayer,
+        lastMove: position,
+        turnTimeLeft: state.turnTimeLeft
+      }));
+      
+      logger.info(`Turn switched to ${state.currentPlayer}`);
+    }
+  }
+
+  function handlePlayerReady(ctx, logger, nk, dispatcher, tick, state, senderId, data) {
+    if (state.players[senderId]) {
+      state.players[senderId].ready = true;
+      state.readyPlayers.add(senderId);
+      
+      logger.info(`Player ${state.players[senderId].username} is ready`);
+      
+      dispatcher.broadcastMessage(OP_CODE.GAME_UPDATE, JSON.stringify({
+        type: 'player_ready',
+        players: state.players,
+        readyCount: state.readyPlayers.size
+      }));
+    }
+  }
+
+  // Register RPC endpoints for additional functionality
+  initializer.registerRpc("get_leaderboard", function(ctx, logger, nk, payload) {
+    try {
+      // Get top players by wins
+      const query = {
+        collection: "stats",
+        key: "player_stats",
+        limit: 100
+      };
+      
+      const results = nk.storageList("", "", "", query.collection, "", query.limit);
+      
+      const leaderboard = results.objects
+        .map(obj => {
+          const stats = JSON.parse(obj.value);
+          return {
+            userId: obj.user_id,
+            username: obj.username || "Unknown",
+            wins: stats.wins || 0,
+            losses: stats.losses || 0,
+            draws: stats.draws || 0,
+            gamesPlayed: stats.gamesPlayed || 0,
+            winRate: stats.gamesPlayed > 0 ? (stats.wins / stats.gamesPlayed * 100).toFixed(1) : 0,
+            winStreak: stats.winStreak || 0,
+            bestWinStreak: stats.bestWinStreak || 0
+          };
+        })
+        .sort((a, b) => {
+          // Sort by wins, then by win rate, then by win streak
+          if (b.wins !== a.wins) return b.wins - a.wins;
+          if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+          return b.winStreak - a.winStreak;
+        })
+        .slice(0, 20); // Top 20 players
+      
+      return JSON.stringify({ leaderboard });
+    } catch (error) {
+      logger.error("Error fetching leaderboard: " + error.message);
+      throw error;
+    }
+  });
+
+  initializer.registerRpc("get_player_stats", function(ctx, logger, nk, payload) {
+    try {
+      const userId = ctx.userId;
+      const objectIds = [{ collection: "stats", key: "player_stats", userId: userId }];
+      const objects = nk.storageRead(objectIds);
+      
+      let stats = { wins: 0, losses: 0, draws: 0, gamesPlayed: 0, winStreak: 0, bestWinStreak: 0 };
+      
+      if (objects.length > 0) {
+        stats = JSON.parse(objects[0].value);
+      }
+      
+      return JSON.stringify({ stats });
+    } catch (error) {
+      logger.error("Error fetching player stats: " + error.message);
+      throw error;
+    }
+  });
+
+  logger.info("Tic-Tac-Toe match handler registered successfully");
+};
+
+module.exports = { InitModule };
+EOF
+
+# Create the Nakama configuration directly
+RUN cat > /nakama/data/config.yml << 'EOF'
+name: nakama-railway
+data_dir: "./data/"
+
+logger:
+  level: "INFO"
+  stdout: true
+
+metrics:
+  reporting_freq_sec: 60
+  stackdriver_projectid: ""
+  prometheus_port: 9100
+
+session:
+  encryption_key: "defaultencryptionkey"
+  token_expiry_sec: 7200
+
+socket:
+  server_key: "defaultkey"
+  port: 7350
+  address: "0.0.0.0"
+  protocol: "tcp"
+  max_message_size_bytes: 4096
+
+runtime:
+  js_entrypoint: "match.js"
+EOF
 
 # Railway config is now embedded above
 

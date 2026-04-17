@@ -4,8 +4,120 @@ FROM heroiclabs/nakama:3.21.1
 USER root
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Copy our game configuration and modules
-COPY nakama/data /nakama/data
+# Create directories and embed configuration directly for reliability
+RUN mkdir -p /nakama/data/modules
+
+# Create the Nakama configuration
+RUN cat > /nakama/data/config.yml << 'EOF'
+name: nakama-production
+data_dir: "./data/"
+
+logger:
+  level: "INFO"  
+  stdout: true
+
+metrics:
+  reporting_freq_sec: 60
+  prometheus_port: 9100
+
+session:
+  encryption_key: "defaultencryptionkey"
+  token_expiry_sec: 7200
+
+socket:
+  server_key: "defaultkey"
+  port: 7350
+  address: "0.0.0.0"
+  protocol: "tcp"
+  max_message_size_bytes: 4096
+
+runtime:
+  js_entrypoint: "match.js"
+EOF
+
+# Create a basic match.js (can be overridden by volume mount in docker-compose)
+RUN cat > /nakama/data/modules/match.js << 'EOF'
+let InitModule = function (ctx, logger, nk, initializer) {
+  logger.info("Basic Tic-Tac-Toe match handler loaded");
+  
+  initializer.registerMatch("tic-tac-toe", {
+    matchInit: function (ctx, logger, nk, params) {
+      return {
+        state: {
+          board: Array(9).fill(null),
+          currentPlayer: 'X',
+          players: {}
+        },
+        tickRate: 1,
+        label: "Tic-Tac-Toe"
+      };
+    },
+
+    matchJoinAttempt: function (ctx, logger, nk, dispatcher, tick, state, presence, metadata) {
+      if (Object.keys(state.players).length >= 2) {
+        return { state, accept: false };
+      }
+      return { state, accept: true };
+    },
+
+    matchJoin: function (ctx, logger, nk, dispatcher, tick, state, presences) {
+      presences.forEach(presence => {
+        const userId = presence.user_id;
+        const username = presence.username;
+        const playerSymbol = Object.keys(state.players).length === 0 ? 'X' : 'O';
+        state.players[userId] = {
+          sessionId: presence.session_id,
+          username: username,
+          symbol: playerSymbol
+        };
+      });
+
+      dispatcher.broadcastMessage(2, JSON.stringify({
+        type: 'player_joined',
+        board: state.board,
+        players: state.players,
+        currentPlayer: state.currentPlayer
+      }));
+
+      return { state };
+    },
+
+    matchLeave: function (ctx, logger, nk, dispatcher, tick, state, presences) {
+      presences.forEach(presence => {
+        delete state.players[presence.user_id];
+      });
+      return { state };
+    },
+
+    matchLoop: function (ctx, logger, nk, dispatcher, tick, state, messages) {
+      messages.forEach(message => {
+        try {
+          const data = JSON.parse(message.data);
+          const position = data.position;
+          
+          if (position >= 0 && position <= 8 && state.board[position] === null) {
+            state.board[position] = state.currentPlayer;
+            state.currentPlayer = state.currentPlayer === 'X' ? 'O' : 'X';
+            
+            dispatcher.broadcastMessage(2, JSON.stringify({
+              type: 'move_made',
+              board: state.board,
+              currentPlayer: state.currentPlayer,
+              lastMove: position
+            }));
+          }
+        } catch (error) {
+          logger.error("Error processing message: " + error.message);
+        }
+      });
+
+      return { state };
+    }
+  });
+};
+
+module.exports = { InitModule };
+EOF
 
 # Create startup script that works with Render's database URL
 RUN echo '#!/bin/sh\n\
