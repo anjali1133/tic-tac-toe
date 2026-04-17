@@ -68,18 +68,13 @@ RUN echo 'let InitModule = function (ctx, logger, nk, initializer) {\n\
 \n\
 module.exports = { InitModule };' > /nakama/data/modules/match.js
 
-# Create the config.yml file directly  
+# Create a minimal config.yml (database will be set via command line)
 RUN echo 'name: nakama-railway\n\
 data_dir: "./data/"\n\
 \n\
 logger:\n\
-  level: "INFO"\n\
+  level: "DEBUG"\n\
   stdout: true\n\
-  file: ""\n\
-\n\
-metrics:\n\
-  reporting_freq_sec: 60\n\
-  prometheus_port: 9100\n\
 \n\
 session:\n\
   encryption_key: "defaultencryptionkey"\n\
@@ -90,7 +85,6 @@ socket:\n\
   port: 7350\n\
   address: "0.0.0.0"\n\
   protocol: "tcp"\n\
-  max_message_size_bytes: 4096\n\
 \n\
 runtime:\n\
   js_entrypoint: "match.js"' > /nakama/data/config.yml
@@ -101,34 +95,57 @@ runtime:\n\
 RUN echo '#!/bin/sh\n\
 echo "🚀 Starting Nakama server on Railway..."\n\
 echo "🔌 Port: $PORT"\n\
-echo "📊 Available env vars:"\n\
+echo "📊 Database environment variables:"\n\
 env | grep -E "(PG|DATABASE)" | sed "s/PASSWORD=.*/PASSWORD=***/" | sort\n\
 echo ""\n\
 \n\
-# Simple approach: use DATABASE_URL directly with Nakama format conversion\n\
+# Try multiple approaches to get the right database connection\n\
 if [ -n "$DATABASE_URL" ]; then\n\
-    echo "✅ Found DATABASE_URL"\n\
-    # Convert postgresql://user:pass@host:port/db to user:pass@host:port/db\n\
-    NAKAMA_DB_ADDRESS=$(echo "$DATABASE_URL" | sed "s|postgresql://||")\n\
-    echo "🔗 Nakama DB Address format: ${NAKAMA_DB_ADDRESS%%:*}:***@..."\n\
-elif [ -n "$POSTGRES_URL" ]; then\n\
-    echo "✅ Found POSTGRES_URL (fallback)"\n\
-    NAKAMA_DB_ADDRESS=$(echo "$POSTGRES_URL" | sed "s|postgres://||")\n\
-    echo "🔗 Using POSTGRES_URL"\n\
+    echo "✅ Attempting DATABASE_URL connection..."\n\
+    \n\
+    # Method 1: Direct URL (some Railway setups)\n\
+    echo "🔄 Method 1: Direct DATABASE_URL"\n\
+    if /nakama/nakama check --database.address "$DATABASE_URL" 2>/dev/null; then\n\
+        NAKAMA_DB_ADDRESS="$DATABASE_URL"\n\
+        echo "✅ Method 1 works!"\n\
+    else\n\
+        echo "❌ Method 1 failed"\n\
+        \n\
+        # Method 2: Remove postgresql:// prefix\n\
+        echo "🔄 Method 2: Remove postgresql:// prefix"\n\
+        DB_ADDR_2=$(echo "$DATABASE_URL" | sed "s|postgresql://||")\n\
+        if /nakama/nakama check --database.address "$DB_ADDR_2" 2>/dev/null; then\n\
+            NAKAMA_DB_ADDRESS="$DB_ADDR_2"\n\
+            echo "✅ Method 2 works!"\n\
+        else\n\
+            echo "❌ Method 2 failed"\n\
+            \n\
+            # Method 3: Replace postgresql with postgres\n\
+            echo "🔄 Method 3: Use postgres:// instead"\n\
+            DB_ADDR_3=$(echo "$DATABASE_URL" | sed "s|postgresql://|postgres://|")\n\
+            if /nakama/nakama check --database.address "$DB_ADDR_3" 2>/dev/null; then\n\
+                NAKAMA_DB_ADDRESS="$DB_ADDR_3"\n\
+                echo "✅ Method 3 works!"\n\
+            else\n\
+                echo "❌ All methods failed, using Method 2 anyway"\n\
+                NAKAMA_DB_ADDRESS="$DB_ADDR_2"\n\
+            fi\n\
+        fi\n\
+    fi\n\
 else\n\
-    echo "❌ ERROR: No DATABASE_URL or POSTGRES_URL found!"\n\
-    echo "Available env vars:"\n\
-    env | sort\n\
+    echo "❌ ERROR: DATABASE_URL not found!"\n\
     exit 1\n\
 fi\n\
 \n\
-# Skip connection testing - let Nakama handle it\n\
+echo "🔗 Final DB Address: ${NAKAMA_DB_ADDRESS%%:*}:***@..."\n\
+\n\
+# Run migrations\n\
 echo "📦 Running database migrations..."\n\
-/nakama/nakama migrate up --database.address "$NAKAMA_DB_ADDRESS" 2>&1 || {\n\
-    echo "⚠️  Migration failed or database not ready, continuing..."\n\
+/nakama/nakama migrate up --database.address "$NAKAMA_DB_ADDRESS" || {\n\
+    echo "⚠️  Migrations failed, but continuing..."\n\
 }\n\
 \n\
-# Start Nakama server with robust settings\n\
+# Start Nakama server\n\
 echo "🎮 Starting Nakama game server..."\n\
 exec /nakama/nakama \\\n\
     --name nakama-railway \\\n\
@@ -138,9 +155,7 @@ exec /nakama/nakama \\\n\
     --runtime.http_key defaultkey \\\n\
     --socket.server_key defaultkey \\\n\
     --socket.port ${PORT:-7350} \\\n\
-    --socket.address 0.0.0.0 \\\n\
-    --console.port 7351 \\\n\
-    --metrics.prometheus_port 9100' > /start-railway.sh && chmod +x /start-railway.sh
+    --socket.address 0.0.0.0' > /start-railway.sh && chmod +x /start-railway.sh
 
 # Expose the port (Railway will set PORT environment variable)
 EXPOSE 7349 7350 7351 9100
