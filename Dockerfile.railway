@@ -1,0 +1,87 @@
+FROM heroiclabs/nakama:3.21.1
+
+# Install curl for health checks
+USER root
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Copy configuration files
+COPY nakama/data/config.yml /nakama/data/config.yml
+COPY nakama/data/modules/ /nakama/data/modules/
+
+# Create Railway-specific config that uses environment variables
+RUN echo 'name: nakama-railway\n\
+data_dir: "./data/"\n\
+\n\
+logger:\n\
+  level: "INFO"\n\
+  stdout: true\n\
+  file: ""\n\
+\n\
+metrics:\n\
+  reporting_freq_sec: 60\n\
+  prometheus_port: 9100\n\
+\n\
+session:\n\
+  encryption_key: "defaultencryptionkey"\n\
+  token_expiry_sec: 7200\n\
+\n\
+socket:\n\
+  server_key: "defaultkey"\n\
+  port: 7350\n\
+  address: "0.0.0.0"\n\
+  protocol: "tcp"\n\
+  max_message_size_bytes: 4096\n\
+\n\
+runtime:\n\
+  js_entrypoint: "match.js"' > /nakama/data/railway-config.yml
+
+# Create startup script for Railway
+RUN echo '#!/bin/sh\n\
+echo "🚀 Starting Nakama server on Railway..."\n\
+echo "📊 Database URL: $DATABASE_URL"\n\
+echo "🔌 Port: $PORT"\n\
+\n\
+# Parse DATABASE_URL and create Nakama database address\n\
+if [ -n "$DATABASE_URL" ]; then\n\
+    # Extract components from postgresql://user:pass@host:port/dbname\n\
+    DB_USER=$(echo $DATABASE_URL | sed "s/.*:\\/\\/\\([^:]*\\):.*/\\1/")\n\
+    DB_PASS=$(echo $DATABASE_URL | sed "s/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/")\n\
+    DB_HOST=$(echo $DATABASE_URL | sed "s/.*@\\([^:]*\\):.*/\\1/")\n\
+    DB_PORT=$(echo $DATABASE_URL | sed "s/.*:\\([0-9]*\\)\\/.*/\\1/")\n\
+    DB_NAME=$(echo $DATABASE_URL | sed "s/.*\\/\\([^?]*\\).*/\\1/")\n\
+    \n\
+    NAKAMA_DB_ADDRESS="$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME"\n\
+    echo "🔗 Nakama DB Address: $DB_USER:***@$DB_HOST:$DB_PORT/$DB_NAME"\n\
+else\n\
+    echo "❌ ERROR: DATABASE_URL environment variable not set!"\n\
+    exit 1\n\
+fi\n\
+\n\
+# Run database migrations first\n\
+echo "📦 Running database migrations..."\n\
+/nakama/nakama migrate up --database.address "$NAKAMA_DB_ADDRESS" || {\n\
+    echo "⚠️  Migration failed, but continuing..."\n\
+}\n\
+\n\
+# Start Nakama server\n\
+echo "🎮 Starting Nakama game server..."\n\
+exec /nakama/nakama \\\n\
+    --name nakama-railway \\\n\
+    --database.address "$NAKAMA_DB_ADDRESS" \\\n\
+    --logger.level INFO \\\n\
+    --session.token_expiry_sec 7200 \\\n\
+    --runtime.http_key defaultkey \\\n\
+    --socket.server_key defaultkey \\\n\
+    --socket.port ${PORT:-7350} \\\n\
+    --console.port 7351 \\\n\
+    --metrics.prometheus_port 9100' > /start-railway.sh && chmod +x /start-railway.sh
+
+# Expose the port (Railway will set PORT environment variable)
+EXPOSE 7349 7350 7351 9100
+
+# Health check for Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-7350}/ || exit 1
+
+# Use Railway startup script
+CMD ["/start-railway.sh"]
