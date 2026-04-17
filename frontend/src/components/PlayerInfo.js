@@ -2,12 +2,15 @@ import React from 'react';
 
 const PlayerInfo = ({ 
     players, 
-    currentTurn, 
+    currentPlayer, 
     userInfo, 
     gameState, 
+    gameStatus,
     moveTimeLeft 
 }) => {
-    if (!players || players.length === 0) {
+    const playerList = Object.values(players || {});
+    
+    if (playerList.length === 0) {
         return (
             <div className="game-info">
                 <div className="game-status">Waiting for players...</div>
@@ -15,24 +18,27 @@ const PlayerInfo = ({
         );
     }
 
-    const isGameInProgress = gameState === 'game_in_progress';
-    const currentPlayer = players[currentTurn];
+    const isGameInProgress = gameState === 'game_in_progress' && gameStatus === 'playing';
+    const currentPlayerObj = playerList.find(p => p.symbol === currentPlayer);
 
     return (
         <div className="game-info">
             <div className="game-status">
-                {isGameInProgress && currentPlayer && (
+                {isGameInProgress && currentPlayerObj && (
                     <>
-                        Current turn: {currentPlayer.username} ({currentPlayer.symbol})
-                        {currentPlayer.userId === userInfo?.userId && (
+                        Current turn: {currentPlayerObj.username} ({currentPlayerObj.symbol})
+                        {Object.keys(players).find(id => players[id].symbol === currentPlayer) === userInfo?.userId && (
                             <span style={{ color: '#667eea', fontWeight: 'bold' }}> - Your turn!</span>
                         )}
                     </>
                 )}
-                {!isGameInProgress && players.length === 2 && (
+                {gameStatus === 'starting' && (
+                    "Game starting..."
+                )}
+                {gameStatus === 'waiting' && playerList.length === 2 && (
                     "Game ready to start"
                 )}
-                {players.length === 1 && (
+                {playerList.length === 1 && (
                     "Waiting for opponent..."
                 )}
             </div>
@@ -44,27 +50,30 @@ const PlayerInfo = ({
             )}
             
             <div className="players-info">
-                {players.map((player, index) => (
-                    <div 
-                        key={player.userId} 
-                        className={`player-info ${
-                            isGameInProgress && index === currentTurn ? 'current-turn' : ''
-                        }`}
-                    >
-                        <div className="player-name">
-                            {player.username}
-                            {player.userId === userInfo?.userId && (
-                                <span style={{ color: '#667eea' }}> (You)</span>
-                            )}
+                {playerList.map((player) => {
+                    const userId = Object.keys(players).find(id => players[id] === player);
+                    return (
+                        <div 
+                            key={userId} 
+                            className={`player-info ${
+                                isGameInProgress && player.symbol === currentPlayer ? 'current-turn' : ''
+                            }`}
+                        >
+                            <div className="player-name">
+                                {player.username}
+                                {userId === userInfo?.userId && (
+                                    <span style={{ color: '#667eea' }}> (You)</span>
+                                )}
+                            </div>
+                            <div className={`player-symbol ${player.symbol.toLowerCase()}`}>
+                                {player.symbol}
+                            </div>
                         </div>
-                        <div className={`player-symbol ${player.symbol.toLowerCase()}`}>
-                            {player.symbol}
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
                 
                 {/* Show empty slots for missing players */}
-                {players.length === 1 && (
+                {playerList.length === 1 && (
                     <div className="player-info">
                         <div className="player-name">Waiting for opponent...</div>
                         <div className="player-symbol">-</div>

@@ -7,87 +7,11 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # Create directories first
 RUN mkdir -p /nakama/data/modules
 
-# Create the match.js file directly
-RUN echo 'let InitModule = function (ctx, logger, nk, initializer) {\n\
-\n\
-  initializer.registerMatch("tic-tac-toe", {\n\
-    matchInit: function (ctx, logger, nk, params) {\n\
-      return {\n\
-        state: {\n\
-          board: Array(9).fill(null),\n\
-          turn: "X",\n\
-          players: []\n\
-        },\n\
-        tickRate: 1,\n\
-        label: "TicTacToe"\n\
-      };\n\
-    },\n\
-\n\
-    matchJoinAttempt: function (ctx, logger, nk, dispatcher, tick, state, presence, metadata) {\n\
-      if (state.players.length >= 2) {\n\
-        return { state, accept: false };\n\
-      }\n\
-      return { state, accept: true };\n\
-    },\n\
-\n\
-    matchJoin: function (ctx, logger, nk, dispatcher, tick, state, presences) {\n\
-      presences.forEach(p => state.players.push(p));\n\
-\n\
-      dispatcher.broadcastMessage(1, {\n\
-        board: state.board,\n\
-        turn: state.turn\n\
-      });\n\
-\n\
-      return { state };\n\
-    },\n\
-\n\
-    matchLoop: function (ctx, logger, nk, dispatcher, tick, state, messages) {\n\
-      messages.forEach(msg => {\n\
-        let data = JSON.parse(msg.data);\n\
-\n\
-        let { index } = data;\n\
-\n\
-        // ❗ SERVER VALIDATION\n\
-        if (state.board[index] !== null) return;\n\
-\n\
-        state.board[index] = state.turn;\n\
-\n\
-        // switch turn\n\
-        state.turn = state.turn === "X" ? "O" : "X";\n\
-\n\
-        dispatcher.broadcastMessage(1, {\n\
-          board: state.board,\n\
-          turn: state.turn\n\
-        });\n\
-      });\n\
-\n\
-      return { state };\n\
-    }\n\
-  });\n\
-};\n\
-\n\
-module.exports = { InitModule };' > /nakama/data/modules/match.js
+# Copy the enhanced game logic from our local files
+COPY nakama/data/modules/match.js /nakama/data/modules/match.js
 
-# Create a minimal config.yml (database will be set via command line)
-RUN echo 'name: nakama-railway\n\
-data_dir: "./data/"\n\
-\n\
-logger:\n\
-  level: "DEBUG"\n\
-  stdout: true\n\
-\n\
-session:\n\
-  encryption_key: "defaultencryptionkey"\n\
-  token_expiry_sec: 7200\n\
-\n\
-socket:\n\
-  server_key: "defaultkey"\n\
-  port: 7350\n\
-  address: "0.0.0.0"\n\
-  protocol: "tcp"\n\
-\n\
-runtime:\n\
-  js_entrypoint: "match.js"' > /nakama/data/config.yml
+# Copy the Nakama configuration
+COPY nakama/data/config.yml /nakama/data/config.yml
 
 # Railway config is now embedded above
 

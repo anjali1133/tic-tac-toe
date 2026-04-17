@@ -1,19 +1,44 @@
 {
-  "name": "tic-tac-toe-backend",
+  "name": "tic-tac-toe-multiplayer",
   "version": "1.0.0",
-  "description": "Tic-tac-toe game backend service with health checks",
-  "main": "server.js",
+  "description": "Production-ready multiplayer Tic-Tac-Toe game with Nakama and React - LILA Engineering Assignment",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "docker-compose up -d",
     "dev": "docker-compose up",
-    "build": "echo 'Build completed - Backend service ready'",
-    "test": "echo 'No tests specified'"
+    "build": "cd frontend && npm install && npm run build",
+    "deploy": "./deploy.sh",
+    "frontend:dev": "cd frontend && npm start",
+    "frontend:build": "cd frontend && npm run build",
+    "frontend:install": "cd frontend && npm install",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "test": "echo 'Run: npm run test:frontend for React tests'",
+    "test:frontend": "cd frontend && npm test"
   },
-  "keywords": ["nakama", "game", "tic-tac-toe", "multiplayer", "backend", "nodejs"],
-  "author": "",
+  "keywords": [
+    "nakama", 
+    "game", 
+    "tic-tac-toe", 
+    "multiplayer", 
+    "react", 
+    "real-time", 
+    "websockets",
+    "production",
+    "lila-engineering"
+  ],
+  "author": "Built for LILA Engineering Assignment",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/tic-tac-toe-multiplayer.git"
+  },
+  "homepage": "https://your-game.vercel.app",
+  "devDependencies": {},
+  "dependencies": {}
 }

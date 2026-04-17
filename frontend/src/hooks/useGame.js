@@ -23,12 +23,13 @@ export const useGame = () => {
     
     // Game state
     const [board, setBoard] = useState(Array(9).fill(null));
-    const [players, setPlayers] = useState([]);
-    const [currentTurn, setCurrentTurn] = useState(0);
+    const [players, setPlayers] = useState({});
+    const [currentPlayer, setCurrentPlayer] = useState('X');
     const [gameResult, setGameResult] = useState(null);
     const [lastMove, setLastMove] = useState(null);
-    const [winningLine, setWinningLine] = useState(null);
+    const [winningPattern, setWinningPattern] = useState(null);
     const [gameMessage, setGameMessage] = useState('');
+    const [gameStatus, setGameStatus] = useState('waiting');
     
     // Timer state
     const [moveTimeLeft, setMoveTimeLeft] = useState(30);
@@ -56,60 +57,78 @@ export const useGame = () => {
         });
     }, []);
 
-    // Handle player join
-    const handlePlayerJoin = useCallback((data) => {
-        setPlayers(data.players || []);
-        setGameMessage(`${data.player.username} joined as ${data.player.symbol}`);
-        
-        if (data.gameState === 0) { // WAITING_FOR_PLAYERS
-            setGameState(GAME_STATES.IN_MATCH);
-        }
+    // Handle timer update
+    const handleTimerUpdate = useCallback((data) => {
+        setMoveTimeLeft(data.turnTimeLeft || 30);
+        setCurrentPlayer(data.currentPlayer || 'X');
     }, []);
-
-    // Handle player leave
-    const handlePlayerLeave = useCallback((data) => {
-        setPlayers(data.players || []);
-        setGameMessage(`${data.leftPlayer.username} left the game`);
-    }, []);
-
-    // Handle game error
-    const handleGameError = useCallback((data) => {
-        console.error('Game error:', data);
-        setGameMessage(`Error: ${data.error}`);
-    }, []);
-
-    // Handle game start
-    const handleGameStart = useCallback((data) => {
-        setGameState(GAME_STATES.GAME_IN_PROGRESS);
-        setBoard(data.board || Array(9).fill(null));
-        setPlayers(data.players || []);
-        setCurrentTurn(data.currentTurn || 0);
-        setGameMessage(data.message || 'Game started!');
-        setGameResult(null);
-        setWinningLine(null);
-        startMoveTimer();
-    }, [startMoveTimer]);
 
     // Handle game update
     const handleGameUpdate = useCallback((data) => {
-        setBoard(data.board || []);
-        setCurrentTurn(data.currentTurn || 0);
-        setLastMove(data.lastMove || null);
+        console.log('Game update data:', data);
         
-        const currentPlayer = data.currentPlayer;
-        if (currentPlayer) {
-            setGameMessage(`${currentPlayer.username}'s turn (${currentPlayer.symbol})`);
+        // Update game state based on message type
+        switch (data.type) {
+            case 'player_joined':
+                setPlayers(data.players || {});
+                setGameStatus(data.gameStatus || 'waiting');
+                setGameMessage('Player joined. Waiting for opponent...');
+                break;
+                
+            case 'game_starting':
+                setPlayers(data.players || {});
+                setBoard(data.board || Array(9).fill(null));
+                setCurrentPlayer(data.currentPlayer || 'X');
+                setGameStatus(data.gameStatus || 'starting');
+                setGameMessage(data.message || 'Game starting...');
+                setGameState(GAME_STATES.IN_MATCH);
+                break;
+                
+            case 'game_started':
+                setBoard(data.board || Array(9).fill(null));
+                setCurrentPlayer(data.currentPlayer || 'X');
+                setGameStatus(data.gameStatus || 'playing');
+                setMoveTimeLeft(data.turnTimeLeft || 30);
+                setGameMessage('Game started! Make your move.');
+                setGameState(GAME_STATES.GAME_IN_PROGRESS);
+                startMoveTimer();
+                break;
+                
+            case 'move_made':
+                setBoard(data.board || []);
+                setCurrentPlayer(data.currentPlayer || 'X');
+                setLastMove(data.lastMove !== undefined ? data.lastMove : null);
+                setMoveTimeLeft(data.turnTimeLeft || 30);
+                
+                // Update game message
+                const playerList = Object.values(players);
+                const currentPlayerObj = playerList.find(p => p.symbol === data.currentPlayer);
+                const currentPlayerName = currentPlayerObj ? currentPlayerObj.username : data.currentPlayer;
+                setGameMessage(`${currentPlayerName}'s turn (${data.currentPlayer})`);
+                
+                startMoveTimer();
+                break;
+                
+            case 'player_ready':
+                setPlayers(data.players || {});
+                setGameMessage(`${data.readyCount || 0}/2 players ready`);
+                break;
+                
+            default:
+                console.log('Unknown game update type:', data.type);
         }
-        
-        startMoveTimer();
-    }, [startMoveTimer]);
+    }, [players, startMoveTimer]);
 
     // Handle game end
     const handleGameEnd = useCallback((data) => {
-        setGameState(GAME_STATES.GAME_FINISHED);
-        setBoard(data.finalBoard || Array(9).fill(null));
-        setWinningLine(data.winningLine || null);
+        console.log('Game end data:', data);
         
+        setGameState(GAME_STATES.GAME_FINISHED);
+        setBoard(data.board || Array(9).fill(null));
+        setWinningPattern(data.winningPattern || null);
+        setGameStatus('ended');
+        
+        // Stop timer
         setTimerInterval(prev => {
             if (prev) {
                 clearInterval(prev);
@@ -118,20 +137,49 @@ export const useGame = () => {
         });
         
         let resultMessage = '';
-        if (data.winner) {
-            resultMessage = `${data.winnerName || 'Unknown'} wins!`;
-            setGameResult({ winner: data.winner, winnerName: data.winnerName });
-        } else {
+        let gameResult = null;
+        
+        if (data.winner === 'draw') {
             resultMessage = 'It\'s a draw!';
-            setGameResult({ winner: null, winnerName: null });
+            gameResult = { winner: null, isDraw: true };
+        } else if (data.winner) {
+            // Find winner info
+            const playerList = Object.values(players);
+            const winnerPlayer = playerList.find(p => p.symbol === data.winner);
+            const winnerName = winnerPlayer ? winnerPlayer.username : data.winner;
+            
+            resultMessage = `${winnerName} wins!`;
+            gameResult = { 
+                winner: data.winner, 
+                winnerName: winnerName,
+                winnerUserId: winnerPlayer ? Object.keys(players).find(id => players[id].symbol === data.winner) : null,
+                isDraw: false 
+            };
         }
         
-        if (data.reason) {
-            resultMessage += ` (${data.reason})`;
+        // Add reason if provided
+        switch (data.reason) {
+            case 'timeout':
+                resultMessage += ' (Time out!)';
+                break;
+            case 'opponent_left':
+                resultMessage += ' (Opponent left)';
+                break;
+            case 'draw':
+                // Already handled above
+                break;
+            case 'victory':
+                resultMessage += ' 🎉';
+                break;
+            default:
+                if (data.reason) {
+                    resultMessage += ` (${data.reason})`;
+                }
         }
         
+        setGameResult(gameResult);
         setGameMessage(resultMessage);
-    }, []);
+    }, [players]);
 
     // Handle match data (game updates)
     const handleMatchData = useCallback((matchData) => {
@@ -142,18 +190,6 @@ export const useGame = () => {
             console.log('Game update:', { op_code, gameData });
             
             switch (op_code) {
-                case OP_CODES.PLAYER_JOIN:
-                    handlePlayerJoin(gameData);
-                    break;
-                    
-                case OP_CODES.PLAYER_LEAVE:
-                    handlePlayerLeave(gameData);
-                    break;
-                    
-                case OP_CODES.GAME_START:
-                    handleGameStart(gameData);
-                    break;
-                    
                 case OP_CODES.GAME_UPDATE:
                     handleGameUpdate(gameData);
                     break;
@@ -162,8 +198,8 @@ export const useGame = () => {
                     handleGameEnd(gameData);
                     break;
                     
-                case OP_CODES.ERROR:
-                    handleGameError(gameData);
+                case OP_CODES.TIMER_UPDATE:
+                    handleTimerUpdate(gameData);
                     break;
                     
                 default:
@@ -172,7 +208,7 @@ export const useGame = () => {
         } catch (error) {
             console.error('Error parsing match data:', error);
         }
-    }, [handlePlayerJoin, handlePlayerLeave, handleGameStart, handleGameUpdate, handleGameEnd, handleGameError]);
+    }, [handleGameUpdate, handleGameEnd, handleTimerUpdate]);
 
     // Handle match presence changes
     const handleMatchPresence = useCallback((presenceData) => {
@@ -287,7 +323,7 @@ export const useGame = () => {
 
     // Make move
     const makeMove = async (position) => {
-        if (gameState !== GAME_STATES.GAME_IN_PROGRESS) {
+        if (gameState !== GAME_STATES.GAME_IN_PROGRESS || gameStatus !== 'playing') {
             return false;
         }
         
@@ -296,8 +332,7 @@ export const useGame = () => {
         }
         
         // Check if it's current user's turn
-        const currentPlayer = players[currentTurn];
-        if (!currentPlayer || currentPlayer.userId !== userInfo?.userId) {
+        if (!isMyTurn()) {
             setGameMessage("It's not your turn!");
             return false;
         }
@@ -318,11 +353,12 @@ export const useGame = () => {
             await nakamaService.leaveMatch();
             setGameState(GAME_STATES.CONNECTED);
             setBoard(Array(9).fill(null));
-            setPlayers([]);
-            setCurrentTurn(0);
+            setPlayers({});
+            setCurrentPlayer('X');
             setGameResult(null);
             setLastMove(null);
-            setWinningLine(null);
+            setWinningPattern(null);
+            setGameStatus('waiting');
             setGameMessage('Left match');
             
             if (timerInterval) {
@@ -342,11 +378,12 @@ export const useGame = () => {
             setGameState(GAME_STATES.DISCONNECTED);
             setUserInfo(null);
             setBoard(Array(9).fill(null));
-            setPlayers([]);
-            setCurrentTurn(0);
+            setPlayers({});
+            setCurrentPlayer('X');
             setGameResult(null);
             setLastMove(null);
-            setWinningLine(null);
+            setWinningPattern(null);
+            setGameStatus('waiting');
             setGameMessage('');
             
             if (timerInterval) {
@@ -360,18 +397,18 @@ export const useGame = () => {
 
     // Get current player info
     const getCurrentPlayer = () => {
-        if (!userInfo || players.length === 0) return null;
-        return players.find(p => p.userId === userInfo.userId);
+        if (!userInfo || Object.keys(players).length === 0) return null;
+        return players[userInfo.userId];
     };
 
     // Check if it's current user's turn
     const isMyTurn = () => {
-        if (!userInfo || players.length < 2 || gameState !== GAME_STATES.GAME_IN_PROGRESS) {
+        if (!userInfo || Object.keys(players).length < 2 || gameState !== GAME_STATES.GAME_IN_PROGRESS || gameStatus !== 'playing') {
             return false;
         }
         
-        const currentPlayer = players[currentTurn];
-        return currentPlayer && currentPlayer.userId === userInfo.userId;
+        const myPlayer = players[userInfo.userId];
+        return myPlayer && myPlayer.symbol === currentPlayer;
     };
 
     return {
@@ -385,11 +422,12 @@ export const useGame = () => {
         // Game state
         board,
         players,
-        currentTurn,
+        currentPlayer,
         gameResult,
         lastMove,
-        winningLine,
+        winningPattern,
         gameMessage,
+        gameStatus,
         moveTimeLeft,
         
         // Actions

@@ -24,6 +24,15 @@ data/
 *.swp
 *.swo
 
+# Deployment cache
+.vercel/
+.netlify/
+.railway/
+
+# Node version files
+.node-version
+.nvmrc
+
 # OS generated files
 .DS_Store
 .DS_Store?

@@ -1,31 +1,56 @@
 FROM heroiclabs/nakama:3.21.1
 
-# Copy configuration files
-COPY nakama/data/config.yml /nakama/data/config.yml
-COPY nakama/data/modules/ /nakama/data/modules/
+# Install curl for health checks
+USER root
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Create startup script
+# Copy our game configuration and modules
+COPY nakama/data /nakama/data
+
+# Create startup script that works with Render's database URL
 RUN echo '#!/bin/sh\n\
-echo "Starting Nakama server..."\n\
-echo "Database address: $NAKAMA_DATABASE_ADDRESS"\n\
-# Run migrations first\n\
-/nakama/nakama migrate up --database.address "$NAKAMA_DATABASE_ADDRESS" || echo "Migration failed, continuing..."\n\
-# Start the server\n\
+echo "🚀 Starting Nakama server..."\n\
+echo "🔌 Port: $PORT"\n\
+echo "📊 Database URL detected: $(echo $DATABASE_URL | cut -d@ -f2)"\n\
+\n\
+# Convert DATABASE_URL to Nakama format\n\
+if [ -n "$DATABASE_URL" ]; then\n\
+    # Extract components from DATABASE_URL\n\
+    DB_ADDR=$(echo "$DATABASE_URL" | sed "s|postgresql://||" | sed "s|postgres://||")\n\
+    echo "🔗 Using database: $DB_ADDR"\n\
+else\n\
+    echo "❌ ERROR: DATABASE_URL not found!"\n\
+    exit 1\n\
+fi\n\
+\n\
+# Run migrations\n\
+echo "📦 Running database migrations..."\n\
+/nakama/nakama migrate up --database.address "$DB_ADDR" || {\n\
+    echo "⚠️ Migrations failed, continuing anyway..."\n\
+}\n\
+\n\
+# Start Nakama server\n\
+echo "🎮 Starting Nakama game server on port ${PORT:-7350}..."\n\
 exec /nakama/nakama \\\n\
-  --name nakama1 \\\n\
-  --database.address "$NAKAMA_DATABASE_ADDRESS" \\\n\
-  --logger.level INFO \\\n\
-  --session.token_expiry_sec 7200 \\\n\
-  --runtime.http_key defaultkey \\\n\
-  --socket.server_key defaultkey \\\n\
-  --metrics.prometheus_port 9100' > /start.sh && chmod +x /start.sh
+    --name nakama-production \\\n\
+    --database.address "$DB_ADDR" \\\n\
+    --logger.level ${NAKAMA_LOGGER_LEVEL:-INFO} \\\n\
+    --session.token_expiry_sec 7200 \\\n\
+    --runtime.http_key defaultkey \\\n\
+    --socket.server_key defaultkey \\\n\
+    --socket.port ${PORT:-7350} \\\n\
+    --socket.address 0.0.0.0 \\\n\
+    --console.port 7351' > /start.sh && chmod +x /start.sh
+
+# Switch back to nakama user for security
+USER nakama
 
 # Expose ports
-EXPOSE 7349 7350 7351 9100
+EXPOSE 7350 7351
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:7350/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:${PORT:-7350}/ || exit 1
 
-# Use startup script
+# Use our startup script
 CMD ["/start.sh"]

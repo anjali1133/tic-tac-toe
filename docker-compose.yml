@@ -52,16 +52,17 @@ services:
       retries: 3
     restart: unless-stopped
 
-  health-server:
+  frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.health
+      context: ./frontend
+      dockerfile: Dockerfile
     ports:
-      - "${PORT:-3000}:3000"
+      - "3000:3000"
     environment:
-      - PORT=${PORT:-3000}
-      - NAKAMA_HOST=nakama
-      - NAKAMA_PORT=7350
+      - REACT_APP_NAKAMA_HOST=localhost
+      - REACT_APP_NAKAMA_PORT=7350
+      - REACT_APP_NAKAMA_USE_SSL=false
+      - REACT_APP_NAKAMA_SERVER_KEY=defaultkey
     depends_on:
       nakama:
         condition: service_healthy

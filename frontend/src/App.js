@@ -3,10 +3,12 @@ import { useGame } from './hooks/useGame';
 import GameBoard from './components/GameBoard';
 import PlayerInfo from './components/PlayerInfo';
 import ConnectionStatus from './components/ConnectionStatus';
+import Leaderboard from './components/Leaderboard';
 import './styles/App.css';
 
 function App() {
     const [usernameInput, setUsernameInput] = useState('');
+    const [showLeaderboard, setShowLeaderboard] = useState(false);
     
     const {
         // State
@@ -18,11 +20,12 @@ function App() {
         // Game state
         board,
         players,
-        currentTurn,
+        currentPlayer,
         gameResult,
         lastMove,
-        winningLine,
+        winningPattern,
         gameMessage,
+        gameStatus,
         moveTimeLeft,
         
         // Actions
@@ -168,6 +171,13 @@ function App() {
                         
                         <button
                             className="button button-secondary"
+                            onClick={() => setShowLeaderboard(true)}
+                        >
+                            🏆 Leaderboard
+                        </button>
+                        
+                        <button
+                            className="button button-secondary"
                             onClick={handleDisconnect}
                         >
                             Disconnect
@@ -196,9 +206,10 @@ function App() {
                     <>
                         <PlayerInfo
                             players={players}
-                            currentTurn={currentTurn}
+                            currentPlayer={currentPlayer}
                             userInfo={userInfo}
                             gameState={gameState}
+                            gameStatus={gameStatus}
                             moveTimeLeft={moveTimeLeft}
                         />
                         
@@ -209,7 +220,7 @@ function App() {
                                 board={board}
                                 onCellClick={handleCellClick}
                                 disabled={!isMyTurn() || gameState === GAME_STATES.GAME_FINISHED}
-                                winningLine={winningLine}
+                                winningPattern={winningPattern}
                                 lastMove={lastMove}
                             />
                         )}
@@ -259,6 +270,12 @@ function App() {
                         </div>
                     </div>
                 )}
+                
+                {/* Leaderboard Modal */}
+                <Leaderboard 
+                    isVisible={showLeaderboard}
+                    onClose={() => setShowLeaderboard(false)}
+                />
             </div>
         </div>
     );

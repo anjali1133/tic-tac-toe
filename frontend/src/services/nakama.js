@@ -9,11 +9,10 @@ const USE_SSL = process.env.REACT_APP_NAKAMA_USE_SSL === 'true';
 export const OP_CODES = {
     MAKE_MOVE: 1,
     GAME_UPDATE: 2,
-    PLAYER_JOIN: 3,
-    PLAYER_LEAVE: 4,
-    GAME_START: 5,
-    GAME_END: 6,
-    ERROR: 7
+    GAME_END: 3,
+    PLAYER_READY: 4,
+    TIMER_UPDATE: 5,
+    PLAYER_DISCONNECT: 6
 };
 
 class NakamaService {
@@ -197,6 +196,51 @@ class NakamaService {
     // Make a move in the game
     async makeMove(position) {
         return this.sendMatchData(OP_CODES.MAKE_MOVE, { position });
+    }
+
+    // Mark player as ready
+    async playerReady() {
+        return this.sendMatchData(OP_CODES.PLAYER_READY, { ready: true });
+    }
+
+    // Get leaderboard data
+    async getLeaderboard() {
+        try {
+            const result = await this.client.rpc(this.session, "get_leaderboard");
+            return JSON.parse(result.payload);
+        } catch (error) {
+            console.error('Failed to fetch leaderboard:', error);
+            throw error;
+        }
+    }
+
+    // Get player statistics
+    async getPlayerStats() {
+        try {
+            const result = await this.client.rpc(this.session, "get_player_stats");
+            return JSON.parse(result.payload);
+        } catch (error) {
+            console.error('Failed to fetch player stats:', error);
+            throw error;
+        }
+    }
+
+    // Create a custom match (for private games)
+    async createMatch() {
+        try {
+            if (!this.socket) {
+                throw new Error('Socket not connected');
+            }
+
+            const match = await this.socket.createMatch("tic-tac-toe");
+            this.currentMatch = match;
+            console.log('Created match:', match);
+            
+            return match;
+        } catch (error) {
+            console.error('Failed to create match:', error);
+            throw error;
+        }
     }
 
     // Cancel matchmaking

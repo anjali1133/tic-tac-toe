@@ -4,7 +4,7 @@ const GameBoard = ({
     board, 
     onCellClick, 
     disabled, 
-    winningLine = null,
+    winningPattern = null,
     lastMove = null 
 }) => {
     const handleCellClick = (index) => {
@@ -22,12 +22,12 @@ const GameBoard = ({
         }
         
         // Add winning cell class
-        if (winningLine && winningLine.includes(index)) {
+        if (winningPattern && winningPattern.includes(index)) {
             className += ' winning';
         }
         
         // Add last move highlight
-        if (lastMove && lastMove.position === index) {
+        if (lastMove === index) {
             className += ' last-move';
         }
         
