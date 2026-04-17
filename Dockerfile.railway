@@ -100,58 +100,45 @@ runtime:\n\
 # Create startup script for Railway
 RUN echo '#!/bin/sh\n\
 echo "🚀 Starting Nakama server on Railway..."\n\
-echo "📊 Database URL: $DATABASE_URL"\n\
 echo "🔌 Port: $PORT"\n\
+echo "📊 Available env vars:"\n\
+env | grep -E "(PG|DATABASE)" | sed "s/PASSWORD=.*/PASSWORD=***/" | sort\n\
+echo ""\n\
 \n\
-# Use Railway environment variables directly if available\n\
-if [ -n "$PGUSER" ] && [ -n "$PGPASSWORD" ] && [ -n "$PGHOST" ] && [ -n "$PGPORT" ] && [ -n "$PGDATABASE" ]; then\n\
-    echo "✅ Using Railway PostgreSQL environment variables"\n\
-    NAKAMA_DB_ADDRESS="$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE"\n\
-    echo "🔗 Nakama DB Address: $PGUSER:***@$PGHOST:$PGPORT/$PGDATABASE"\n\
-elif [ -n "$DATABASE_URL" ]; then\n\
-    echo "✅ Using DATABASE_URL"\n\
-    # Convert postgresql:// URL to Nakama format\n\
-    NAKAMA_DB_ADDRESS=$(echo $DATABASE_URL | sed "s/postgresql:\\/\\///g")\n\
-    echo "🔗 Using DATABASE_URL (converted)"\n\
+# Simple approach: use DATABASE_URL directly with Nakama format conversion\n\
+if [ -n "$DATABASE_URL" ]; then\n\
+    echo "✅ Found DATABASE_URL"\n\
+    # Convert postgresql://user:pass@host:port/db to user:pass@host:port/db\n\
+    NAKAMA_DB_ADDRESS=$(echo "$DATABASE_URL" | sed "s|postgresql://||")\n\
+    echo "🔗 Nakama DB Address format: ${NAKAMA_DB_ADDRESS%%:*}:***@..."\n\
+elif [ -n "$POSTGRES_URL" ]; then\n\
+    echo "✅ Found POSTGRES_URL (fallback)"\n\
+    NAKAMA_DB_ADDRESS=$(echo "$POSTGRES_URL" | sed "s|postgres://||")\n\
+    echo "🔗 Using POSTGRES_URL"\n\
 else\n\
-    echo "❌ ERROR: No database configuration found!"\n\
-    echo "Missing: DATABASE_URL or PGUSER/PGPASSWORD/PGHOST/PGPORT/PGDATABASE"\n\
+    echo "❌ ERROR: No DATABASE_URL or POSTGRES_URL found!"\n\
+    echo "Available env vars:"\n\
+    env | sort\n\
     exit 1\n\
 fi\n\
 \n\
-# Test database connection first\n\
-echo "🧪 Testing database connection..."\n\
-/nakama/nakama check --database.address "$NAKAMA_DB_ADDRESS" || {\n\
-    echo "❌ Database connection test failed!"\n\
-    echo "🔍 Trying alternative connection format..."\n\
-    \n\
-    # Alternative: use DATABASE_URL directly\n\
-    if [ -n "$DATABASE_URL" ]; then\n\
-        NAKAMA_DB_ADDRESS=$(echo $DATABASE_URL | sed "s/postgresql:\\/\\///g")\n\
-        echo "🔄 Retry with: $NAKAMA_DB_ADDRESS"\n\
-        /nakama/nakama check --database.address "$NAKAMA_DB_ADDRESS" || {\n\
-            echo "❌ Database connection still failing"\n\
-            echo "💡 Starting without migrations (Nakama will retry)"\n\
-        }\n\
-    fi\n\
-}\n\
-\n\
-# Run database migrations\n\
+# Skip connection testing - let Nakama handle it\n\
 echo "📦 Running database migrations..."\n\
-/nakama/nakama migrate up --database.address "$NAKAMA_DB_ADDRESS" || {\n\
-    echo "⚠️  Migration failed, but continuing..."\n\
+/nakama/nakama migrate up --database.address "$NAKAMA_DB_ADDRESS" 2>&1 || {\n\
+    echo "⚠️  Migration failed or database not ready, continuing..."\n\
 }\n\
 \n\
-# Start Nakama server\n\
+# Start Nakama server with robust settings\n\
 echo "🎮 Starting Nakama game server..."\n\
 exec /nakama/nakama \\\n\
     --name nakama-railway \\\n\
     --database.address "$NAKAMA_DB_ADDRESS" \\\n\
-    --logger.level INFO \\\n\
+    --logger.level DEBUG \\\n\
     --session.token_expiry_sec 7200 \\\n\
     --runtime.http_key defaultkey \\\n\
     --socket.server_key defaultkey \\\n\
     --socket.port ${PORT:-7350} \\\n\
+    --socket.address 0.0.0.0 \\\n\
     --console.port 7351 \\\n\
     --metrics.prometheus_port 9100' > /start-railway.sh && chmod +x /start-railway.sh
 
