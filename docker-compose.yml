@@ -24,14 +24,14 @@ services:
       - "/bin/sh"
       - "-ecx"
       - >
-        /nakama/nakama migrate up --database.address postgres:${POSTGRES_PASSWORD:-localdb}@postgres:5432/nakama &&
+        /nakama/nakama migrate up --database.address postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB} &&
         exec /nakama/nakama --name nakama1 
-        --database.address postgres:${POSTGRES_PASSWORD:-localdb}@postgres:5432/nakama 
-        --logger.level INFO 
+        --database.address postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+        --logger.level ${NAKAMA_LOGGER_LEVEL:-INFO} 
         --session.token_expiry_sec 7200 
         --metrics.prometheus_port 9100
-        --runtime.http_key defaultkey
-        --socket.server_key defaultkey
+        --runtime.http_key ${NAKAMA_SERVER_KEY}
+        --socket.server_key ${NAKAMA_SERVER_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -43,8 +43,12 @@ services:
       - "7350:7350"  # HTTP API & WebSocket
       - "7351:7351"  # Console
     environment:
-      - NAKAMA_DATABASE_ADDRESS=postgres:${POSTGRES_PASSWORD:-localdb}@postgres:5432/nakama
-      - NAKAMA_LOGGER_LEVEL=INFO
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - NAKAMA_SERVER_KEY=${NAKAMA_SERVER_KEY}
+      - NAKAMA_ENCRYPTION_KEY=${NAKAMA_ENCRYPTION_KEY}
+      - NAKAMA_LOGGER_LEVEL=${NAKAMA_LOGGER_LEVEL:-INFO}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7350/"]
       interval: 30s
@@ -59,10 +63,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - REACT_APP_NAKAMA_HOST=localhost
-      - REACT_APP_NAKAMA_PORT=7350
-      - REACT_APP_NAKAMA_USE_SSL=false
-      - REACT_APP_NAKAMA_SERVER_KEY=defaultkey
+      - REACT_APP_NAKAMA_HOST=${REACT_APP_NAKAMA_HOST:-localhost}
+      - REACT_APP_NAKAMA_PORT=${REACT_APP_NAKAMA_PORT:-7350}
+      - REACT_APP_NAKAMA_USE_SSL=${REACT_APP_NAKAMA_USE_SSL:-false}
+      - REACT_APP_NAKAMA_SERVER_KEY=${NAKAMA_SERVER_KEY}
     depends_on:
       nakama:
         condition: service_healthy
