@@ -556,7 +556,7 @@ else
 fi
 EOF
 
-chmod +x /start-railway.sh
+RUN chmod +x /start-railway.sh
 
 # Expose the port (Railway will set PORT environment variable)
 EXPOSE 7349 7350 7351 9100
