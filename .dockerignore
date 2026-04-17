@@ -7,5 +7,6 @@ README.md
 .nyc_output
 coverage
 .docker
-Dockerfile*
 docker-compose*
+frontend/
+vercel.json
