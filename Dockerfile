@@ -5,7 +5,6 @@ WORKDIR /nakama
 
 # Copy Nakama configuration and modules
 COPY ./nakama/data /nakama/data
-COPY ./nakama/modules /nakama/data/modules
 
 # Copy startup script
 COPY ./start.sh /nakama/start.sh
