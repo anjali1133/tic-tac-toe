@@ -1,0 +1,37 @@
+# Manual Render.com deployment configuration
+# Use this if the main render.yaml has issues
+
+databases:
+  - name: nakama-db
+    databaseName: nakama
+
+services:
+  - type: web
+    name: nakama-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile.nakama
+    healthCheckPath: /
+    envVars:
+      # Note: You'll need to manually set DATABASE_URL in Render dashboard
+      # Get it from your database service and set it manually
+      - key: PORT
+        value: 7350
+      - key: NAKAMA_LOGGER_LEVEL  
+        value: INFO
+
+  - type: web
+    name: tic-tac-toe-app
+    runtime: static  
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/build
+    envVars:
+      # Note: You'll need to manually set this to your Nakama service URL
+      # Format: your-nakama-service-name.onrender.com
+      - key: REACT_APP_NAKAMA_HOST
+        value: your-nakama-backend.onrender.com
+      - key: REACT_APP_NAKAMA_PORT
+        value: 443
+      - key: REACT_APP_NAKAMA_USE_SSL
+        value: true
+      - key: REACT_APP_NAKAMA_SERVER_KEY
+        value: defaultkey

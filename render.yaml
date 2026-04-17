@@ -1,51 +1,35 @@
-services:
-  # PostgreSQL Database
-  - type: pserv
-    name: nakama-postgres
-    env: docker
-    dockerfilePath: ./Dockerfile.postgres
-    disk:
-      name: postgres-data
-      mountPath: /var/lib/postgresql/data
-      sizeGB: 10
-    envVars:
-      - key: POSTGRES_DB
-        value: nakama
-      - key: POSTGRES_USER
-        value: postgres
-      - key: POSTGRES_PASSWORD
-        generateValue: true
-      - key: PGDATA
-        value: /var/lib/postgresql/data/pgdata
+databases:
+  - name: nakama-postgres
+    databaseName: nakama
+    user: postgres
 
+services:
   # Nakama Game Server  
   - type: web
     name: nakama-server
-    env: docker
+    runtime: docker
     dockerfilePath: ./Dockerfile.nakama
     envVars:
       - key: DATABASE_URL
-        fromService:
-          type: pserv
+        fromDatabase:
           name: nakama-postgres
           property: connectionString
       - key: PORT
         value: 7350
       - key: NAKAMA_LOGGER_LEVEL
         value: INFO
-    healthCheckPath: /
     
   # Frontend Application
   - type: web  
     name: tic-tac-toe-frontend
-    env: static
+    runtime: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: ./frontend/build
     envVars:
       - key: REACT_APP_NAKAMA_HOST
         fromService:
-          type: web
           name: nakama-server
+          type: web
           property: host
       - key: REACT_APP_NAKAMA_PORT
         value: 443
