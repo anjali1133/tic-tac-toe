@@ -103,23 +103,40 @@ echo "🚀 Starting Nakama server on Railway..."\n\
 echo "📊 Database URL: $DATABASE_URL"\n\
 echo "🔌 Port: $PORT"\n\
 \n\
-# Parse DATABASE_URL and create Nakama database address\n\
-if [ -n "$DATABASE_URL" ]; then\n\
-    # Extract components from postgresql://user:pass@host:port/dbname\n\
-    DB_USER=$(echo $DATABASE_URL | sed "s/.*:\\/\\/\\([^:]*\\):.*/\\1/")\n\
-    DB_PASS=$(echo $DATABASE_URL | sed "s/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/")\n\
-    DB_HOST=$(echo $DATABASE_URL | sed "s/.*@\\([^:]*\\):.*/\\1/")\n\
-    DB_PORT=$(echo $DATABASE_URL | sed "s/.*:\\([0-9]*\\)\\/.*/\\1/")\n\
-    DB_NAME=$(echo $DATABASE_URL | sed "s/.*\\/\\([^?]*\\).*/\\1/")\n\
-    \n\
-    NAKAMA_DB_ADDRESS="$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME"\n\
-    echo "🔗 Nakama DB Address: $DB_USER:***@$DB_HOST:$DB_PORT/$DB_NAME"\n\
+# Use Railway environment variables directly if available\n\
+if [ -n "$PGUSER" ] && [ -n "$PGPASSWORD" ] && [ -n "$PGHOST" ] && [ -n "$PGPORT" ] && [ -n "$PGDATABASE" ]; then\n\
+    echo "✅ Using Railway PostgreSQL environment variables"\n\
+    NAKAMA_DB_ADDRESS="$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE"\n\
+    echo "🔗 Nakama DB Address: $PGUSER:***@$PGHOST:$PGPORT/$PGDATABASE"\n\
+elif [ -n "$DATABASE_URL" ]; then\n\
+    echo "✅ Using DATABASE_URL"\n\
+    # Convert postgresql:// URL to Nakama format\n\
+    NAKAMA_DB_ADDRESS=$(echo $DATABASE_URL | sed "s/postgresql:\\/\\///g")\n\
+    echo "🔗 Using DATABASE_URL (converted)"\n\
 else\n\
-    echo "❌ ERROR: DATABASE_URL environment variable not set!"\n\
+    echo "❌ ERROR: No database configuration found!"\n\
+    echo "Missing: DATABASE_URL or PGUSER/PGPASSWORD/PGHOST/PGPORT/PGDATABASE"\n\
     exit 1\n\
 fi\n\
 \n\
-# Run database migrations first\n\
+# Test database connection first\n\
+echo "🧪 Testing database connection..."\n\
+/nakama/nakama check --database.address "$NAKAMA_DB_ADDRESS" || {\n\
+    echo "❌ Database connection test failed!"\n\
+    echo "🔍 Trying alternative connection format..."\n\
+    \n\
+    # Alternative: use DATABASE_URL directly\n\
+    if [ -n "$DATABASE_URL" ]; then\n\
+        NAKAMA_DB_ADDRESS=$(echo $DATABASE_URL | sed "s/postgresql:\\/\\///g")\n\
+        echo "🔄 Retry with: $NAKAMA_DB_ADDRESS"\n\
+        /nakama/nakama check --database.address "$NAKAMA_DB_ADDRESS" || {\n\
+            echo "❌ Database connection still failing"\n\
+            echo "💡 Starting without migrations (Nakama will retry)"\n\
+        }\n\
+    fi\n\
+}\n\
+\n\
+# Run database migrations\n\
 echo "📦 Running database migrations..."\n\
 /nakama/nakama migrate up --database.address "$NAKAMA_DB_ADDRESS" || {\n\
     echo "⚠️  Migration failed, but continuing..."\n\
