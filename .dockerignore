@@ -1,4 +1,4 @@
-# Exclude unnecessary files and directories
+# For Docker builds only (Railway will ignore this when using Node.js buildpack)
 node_modules
 npm-debug.log*
 .git
@@ -6,6 +6,5 @@ npm-debug.log*
 .nyc_output
 coverage
 .docker
-docker-compose*
 frontend/
 vercel.json

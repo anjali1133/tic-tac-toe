@@ -1,0 +1,23 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json ./
+
+# Install dependencies (if any)
+RUN npm install --only=production
+
+# Copy application files
+COPY server.js ./
+
+# Create a simple start script as backup
+RUN echo '#!/bin/sh' > /app/start.sh && \
+    echo 'node server.js' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
+# Expose port
+EXPOSE 7350
+
+# Use node directly as primary command
+CMD ["node", "server.js"]
