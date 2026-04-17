@@ -4,7 +4,7 @@
   "description": "Tic-tac-toe game backend service with health checks",
   "main": "server.js",
   "scripts": {
-    "start": "./start.sh",
+    "start": "node server.js",
     "dev": "docker-compose up",
     "build": "echo 'Build completed - Backend service ready'",
     "test": "echo 'No tests specified'"
@@ -15,8 +15,5 @@
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=8.0.0"
-  },
-  "dependencies": {
-    "ws": "^8.16.0"
   }
 }
