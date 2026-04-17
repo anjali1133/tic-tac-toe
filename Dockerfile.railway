@@ -4,6 +4,9 @@ FROM heroiclabs/nakama:3.21.1
 USER root
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
+# Create directories first
+RUN mkdir -p /nakama/data/modules
+
 # Copy configuration files
 COPY nakama/data/config.yml /nakama/data/config.yml
 COPY nakama/data/modules/ /nakama/data/modules/
