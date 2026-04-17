@@ -1,0 +1,31 @@
+FROM heroiclabs/nakama:3.21.1
+
+# Copy configuration files
+COPY nakama/data/config.yml /nakama/data/config.yml
+COPY nakama/data/modules/ /nakama/data/modules/
+
+# Create startup script
+RUN echo '#!/bin/sh\n\
+echo "Starting Nakama server..."\n\
+echo "Database address: $NAKAMA_DATABASE_ADDRESS"\n\
+# Run migrations first\n\
+/nakama/nakama migrate up --database.address "$NAKAMA_DATABASE_ADDRESS" || echo "Migration failed, continuing..."\n\
+# Start the server\n\
+exec /nakama/nakama \\\n\
+  --name nakama1 \\\n\
+  --database.address "$NAKAMA_DATABASE_ADDRESS" \\\n\
+  --logger.level INFO \\\n\
+  --session.token_expiry_sec 7200 \\\n\
+  --runtime.http_key defaultkey \\\n\
+  --socket.server_key defaultkey \\\n\
+  --metrics.prometheus_port 9100' > /start.sh && chmod +x /start.sh
+
+# Expose ports
+EXPOSE 7349 7350 7351 9100
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:7350/ || exit 1
+
+# Use startup script
+CMD ["/start.sh"]

@@ -1,0 +1,63 @@
+services:
+  # PostgreSQL Database
+  - type: pserv
+    name: tic-tac-toe-postgres
+    env: docker
+    dockerfilePath: ./Dockerfile.postgres
+    plan: starter
+    envVars:
+      - key: POSTGRES_DB
+        value: nakama
+      - key: POSTGRES_USER
+        value: postgres
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+    disk:
+      name: postgres-data
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
+
+  # Nakama Game Server  
+  - type: web
+    name: tic-tac-toe-nakama
+    env: docker
+    dockerfilePath: ./Dockerfile.nakama
+    plan: starter
+    healthCheckPath: /
+    envVars:
+      - key: NAKAMA_DATABASE_ADDRESS
+        fromService:
+          name: tic-tac-toe-postgres
+          type: pserv
+          property: connectionString
+      - key: NAKAMA_LOGGER_LEVEL
+        value: INFO
+      - key: PORT
+        value: 7350
+    buildFilter:
+      paths:
+        - nakama/**/*
+        - Dockerfile.nakama
+
+  # Health Check & Proxy Server
+  - type: web
+    name: tic-tac-toe-backend
+    env: docker
+    dockerfilePath: ./Dockerfile.health
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NAKAMA_HOST
+        fromService:
+          name: tic-tac-toe-nakama
+          type: web
+          property: host
+      - key: NAKAMA_PORT
+        value: 7350
+    buildFilter:
+      paths:
+        - server.js
+        - package*.json
+        - Dockerfile.health

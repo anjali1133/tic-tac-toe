@@ -1,6 +1,7 @@
 import { Client } from '@heroiclabs/nakama-js';
 
 // Configuration
+const HOST = process.env.REACT_APP_NAKAMA_HOST || 'localhost';
 const PORT = process.env.REACT_APP_NAKAMA_PORT || '7350';
 const USE_SSL = process.env.REACT_APP_NAKAMA_USE_SSL === 'true';
 
@@ -17,7 +18,7 @@ export const OP_CODES = {
 
 class NakamaService {
     constructor() {
-        this.client = new Client("defaultkey", process.env.REACT_APP_NAKAMA_HOST, "443", true);
+        this.client = new Client("defaultkey", HOST, PORT, USE_SSL);
         this.session = null;
         this.socket = null;
         this.currentMatch = null;
