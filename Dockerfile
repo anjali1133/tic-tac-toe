@@ -2,12 +2,25 @@ FROM heroiclabs/nakama:3.22.0
 
 WORKDIR /nakama
 
-# Copy Nakama configuration and modules
-COPY nakama/data /nakama/data
+# Create necessary directories
+RUN mkdir -p /nakama/data/modules
 
-# Copy and set up startup script
+# Copy files individually to avoid path issues
+COPY nakama/data/config.yml /nakama/data/config.yml
+COPY nakama/data/modules/match.js /nakama/data/modules/match.js
+
+# Copy startup script
 COPY start.sh /nakama/start.sh
 RUN chmod +x /nakama/start.sh
+
+# Verify files were copied correctly
+RUN echo "=== Verifying Nakama files ===" && \
+    ls -la /nakama/data/ && \
+    ls -la /nakama/data/modules/ && \
+    echo "=== Config file content ===" && \
+    head -5 /nakama/data/config.yml && \
+    echo "=== Match.js exists ===" && \
+    ls -la /nakama/data/modules/match.js
 
 # Expose Nakama ports (Railway will map to $PORT automatically)
 EXPOSE 7349 7350 7351
