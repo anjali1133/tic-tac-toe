@@ -1,26 +1,16 @@
-FROM heroiclabs/nakama:3.22.0
+# Multi-stage build approach
+FROM node:18-alpine AS node-service
 
-# Set working directory
-WORKDIR /nakama
+WORKDIR /app
+COPY package.json server.js ./
+EXPOSE 7350
+CMD ["node", "server.js"]
 
-# Copy all project files first
-COPY . /tmp/build/
-
-# Create necessary directories and copy files
-RUN mkdir -p /nakama/data/modules && \
-    cp /tmp/build/nakama/data/config.yml /nakama/data/config.yml && \
-    cp /tmp/build/nakama/data/modules/match.js /nakama/data/modules/match.js && \
-    cp /tmp/build/start.sh /nakama/start.sh && \
-    chmod +x /nakama/start.sh && \
-    rm -rf /tmp/build
-
-# Expose necessary ports
-EXPOSE 7349 7350 7351 9100
-
-# Set default environment variables
-ENV NAKAMA_DB_ADDRESS=""
-ENV NAKAMA_SERVER_KEY="defaultkey"
-ENV NAKAMA_PORT="7350"
-
-# Use the startup script
-CMD ["/nakama/start.sh"]
+# Alternative Nakama build (uncomment to use full game server)
+# FROM heroiclabs/nakama:3.22.0 AS nakama-service
+# COPY nakama/data /nakama/data
+# COPY start.sh /start.sh
+# RUN chmod +x /start.sh
+# EXPOSE 7349 7350 7351 9100
+# ENV NAKAMA_SERVER_KEY="defaultkey"
+# CMD ["/start.sh"]

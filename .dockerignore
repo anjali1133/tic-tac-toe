@@ -9,11 +9,3 @@ coverage
 docker-compose*
 frontend/
 vercel.json
-
-# Include only what we need for the backend
-!nakama/
-!start.sh
-!package.json
-!index.js
-!Procfile
-!railway.json

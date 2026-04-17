@@ -1,21 +1,18 @@
 {
   "name": "tic-tac-toe-backend",
   "version": "1.0.0",
-  "description": "Tic-tac-toe game backend with Nakama server",
-  "main": "index.js",
+  "description": "Tic-tac-toe game backend service with health checks",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node server.js",
     "dev": "docker-compose up",
-    "build": "echo 'Build completed - Nakama backend ready'",
+    "build": "echo 'Build completed - Backend service ready'",
     "test": "echo 'No tests specified'"
   },
-  "keywords": ["nakama", "game", "tic-tac-toe", "multiplayer", "backend"],
+  "keywords": ["nakama", "game", "tic-tac-toe", "multiplayer", "backend", "nodejs"],
   "author": "",
   "license": "MIT",
   "engines": {
     "node": ">=16.0.0"
-  },
-  "dependencies": {
-    "child_process": "*"
   }
 }
